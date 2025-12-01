@@ -1,0 +1,110 @@
+enterprise-monitoring-platform/
+├── .github/
+│   └── workflows/
+│       ├── ci-cd.yml
+│       └── security-scan.yml
+├── backend/
+│   ├── app/
+│   │   ├── __init__.py
+│   │   ├── main.py
+│   │   ├── models.py
+│   │   ├── schemas.py
+│   │   ├── database.py
+│   │   ├── config.py
+│   │   ├── auth.py
+│   │   ├── api/
+│   │   │   ├── __init__.py
+│   │   │   ├── assets.py
+│   │   │   ├── alerts.py
+│   │   │   ├── monitoring.py
+│   │   │   └── auth.py
+│   │   ├── services/
+│   │   │   ├── __init__.py
+│   │   │   ├── asset_monitor.py
+│   │   │   ├── alert_service.py
+│   │   │   ├── predictive_analytics.py
+│   │   │   └── report_generator.py
+│   │   └── utils/
+│   │       ├── __init__.py
+│   │       └── helpers.py
+│   ├── tests/
+│   │   ├── __init__.py
+│   │   ├── test_assets.py
+│   │   └── test_auth.py
+│   ├── Dockerfile
+│   ├── docker-compose.yml
+│   ├── requirements.txt
+│   ├── alembic.ini
+│   └── README.md
+├── frontend/
+│   ├── public/
+│   │   ├── index.html
+│   │   └── favicon.ico
+│   ├── src/
+│   │   ├── components/
+│   │   │   ├── Layout/
+│   │   │   │   ├── index.jsx
+│   │   │   │   └── Sidebar.jsx
+│   │   │   ├── Charts/
+│   │   │   │   ├── LineChart.jsx
+│   │   │   │   └── PieChart.jsx
+│   │   │   ├── Cards/
+│   │   │   │   ├── MetricCard.jsx
+│   │   │   │   └── AlertCard.jsx
+│   │   │   └── Common/
+│   │   │       ├── Loading.jsx
+│   │   │       └── ErrorBoundary.jsx
+│   │   ├── pages/
+│   │   │   ├── Dashboard.jsx
+│   │   │   ├── Assets.jsx
+│   │   │   ├── Monitoring.jsx
+│   │   │   ├── Alerts.jsx
+│   │   │   ├── Analytics.jsx
+│   │   │   ├── Reports.jsx
+│   │   │   ├── Maintenance.jsx
+│   │   │   └── Settings.jsx
+│   │   ├── services/
+│   │   │   ├── api.js
+│   │   │   └── websocket.js
+│   │   ├── hooks/
+│   │   │   ├── useAssets.js
+│   │   │   └── useAlerts.js
+│   │   ├── context/
+│   │   │   └── AuthContext.js
+│   │   ├── App.jsx
+│   │   ├── index.js
+│   │   └── index.css
+│   ├── package.json
+│   ├── Dockerfile
+│   ├── .env.example
+│   └── README.md
+├── infrastructure/
+│   ├── docker-compose.prod.yml
+│   ├── docker-compose.dev.yml
+│   ├── nginx/
+│   │   ├── nginx.conf
+│   │   └── ssl/
+│   ├── prometheus/
+│   │   ├── prometheus.yml
+│   │   └── alert.rules
+│   ├── grafana/
+│   │   ├── dashboards/
+│   │   └── datasources/
+│   └── terraform/
+│       ├── main.tf
+│       ├── variables.tf
+│       └── outputs.tf
+├── kubernetes/
+│   ├── deployment.yaml
+│   ├── service.yaml
+│   ├── ingress.yaml
+│   └── configmap.yaml
+├── scripts/
+│   ├── setup.sh
+│   ├── deploy.sh
+│   └── backup.sh
+├── .gitignore
+├── .env.example
+├── docker-compose.yml
+├── Makefile
+└── README.md
