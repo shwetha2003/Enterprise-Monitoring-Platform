@@ -1,0 +1,37 @@
+title = "Enterprise Monitoring Platform Secret Detection"
+
+[extend]
+useDefault = true
+
+[[rules]]
+description = "Generic Secret"
+id = "generic-secret"
+regex = '''(?i)(secret|key|token|password|passwd|pwd|credential)[=:]\s*['"][a-zA-Z0-9!@#$%^&*()_+\-=\[\]{}|;:,.<>?/~`]{8,}['"]'''
+
+[[rules]]
+description = "JWT Secret"
+id = "jwt-secret"
+regex = '''(?i)(jwt|access.?token|refresh.?token).*['"][a-zA-Z0-9-_=]+\.[a-zA-Z0-9-_=]+\.?[a-zA-Z0-9-_.+/=]*['"]'''
+
+[[rules]]
+description = "AWS Keys"
+id = "aws-keys"
+regex = '''(A3T[A-Z0-9]|AKIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}'''
+
+[[rules]]
+description = "Database URLs"
+id = "database-url"
+regex = '''(postgres|mysql|mongodb)://[^:@]+:[^:@]+@'''
+
+[allowlist]
+paths = [
+  ".env.example",
+  "**/*.test.js",
+  "**/*.spec.js",
+  "**/*.test.py",
+  "**/*.spec.py"
+]
+
+commits = [
+  "commit-hash-with-false-positive"
+]
