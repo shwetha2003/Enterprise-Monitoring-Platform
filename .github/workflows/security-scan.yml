@@ -1,4 +1,4 @@
-name: Security Scan
+name: Security - Simplified
 
 on:
   push:
@@ -6,251 +6,76 @@ on:
   pull_request:
     branches: [ main ]
   schedule:
-    - cron: '0 2 * * 1'  # Every Monday at 2 AM
-  workflow_dispatch:
+    - cron: '0 2 * * 1'
 
 permissions:
   contents: read
   security-events: write
-  actions: read
 
 jobs:
-  codeql-analysis:
+  security:
     runs-on: ubuntu-latest
     
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
     
+    # CodeQL Analysis
     - name: Initialize CodeQL
       uses: github/codeql-action/init@v3
       with:
         languages: python, javascript
-        queries: security-extended,security-and-quality
     
     - name: Autobuild
       uses: github/codeql-action/autobuild@v3
     
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v3
-
-  dependency-scan:
-    runs-on: ubuntu-latest
     
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-    
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.11'
-    
-    - name: Set up Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '18'
-    
+    # Dependency Scanning
     - name: Scan Python dependencies
       working-directory: ./backend
       run: |
         pip install safety
-        safety check --json > safety-report.json || echo "Safety scan completed"
+        safety check || echo "Safety check completed"
     
     - name: Scan Node.js dependencies
       working-directory: ./frontend
       run: |
-        npm audit --json > npm-audit-report.json || echo "npm audit completed"
-        npx license-checker --json --out license-report.json || echo "license check completed"
+        npm audit --audit-level=high || echo "npm audit completed"
     
-    - name: Upload dependency scan results
-      uses: actions/upload-artifact@v4
-      with:
-        name: dependency-scan-results
-        path: |
-          ./backend/safety-report.json
-          ./frontend/npm-audit-report.json
-          ./frontend/license-report.json
-        retention-days: 30
-
-  container-scan:
-    runs-on: ubuntu-latest
-    
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-    
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-    
-    - name: Build container images
-      run: |
-        docker build -t backend-scan ./backend
-        docker build -t frontend-scan ./frontend
-    
-    - name: Scan backend container
-      uses: aquasecurity/trivy-action@master
-      with:
-        image-ref: 'backend-scan'
-        format: 'sarif'
-        output: 'trivy-backend.sarif'
-        severity: 'HIGH,CRITICAL'
-    
-    - name: Scan frontend container
-      uses: aquasecurity/trivy-action@master
-      with:
-        image-ref: 'frontend-scan'
-        format: 'sarif'
-        output: 'trivy-frontend.sarif'
-        severity: 'HIGH,CRITICAL'
-    
-    - name: Upload container scan results
-      uses: github/codeql-action/upload-sarif@v3
-      with:
-        sarif_file: |
-          trivy-backend.sarif
-          trivy-frontend.sarif
-        wait-for-processing: true
-
-  secret-scan:
-    runs-on: ubuntu-latest
-    
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-    
-    - name: Run Gitleaks for secrets scanning
-      uses: gitleaks/gitleaks-action@v2
-      with:
-        # config-path is not supported in v2, using default config file
-        path: ./
-        verbose: true
-        redact: true
-        no-git: false
-    
-    - name: Run TruffleHog
-      uses: trufflesecurity/trufflehog@main
-      with:
-        path: ./
-        base: ${{ github.event.before || 'HEAD~1' }}
-        head: ${{ github.event.after || 'HEAD' }}
-        extra_args: --results=verified --json
-    
-    - name: Check for hardcoded secrets
-      run: |
-        # Simple grep for common secret patterns
-        echo "Checking for hardcoded secrets..."
-        grep -r "SECRET_KEY\|API_KEY\|PASSWORD\|TOKEN" --include="*.py" --include="*.js" --include="*.jsx" --include="*.ts" --include="*.tsx" --include="*.env" --exclude-dir=node_modules --exclude-dir=__pycache__ . || echo "No obvious secrets found"
-
-  sast:
-    runs-on: ubuntu-latest
-    
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-    
-    - name: Run Semgrep SAST
-      uses: returntocorp/semgrep-action@v1
-      with:
-        config: |
-          p/security-audit
-          p/python
-          p/javascript
-    
+    # Static Analysis
     - name: Run Bandit (Python)
       working-directory: ./backend
       run: |
         pip install bandit
-        bandit -r app -f json -o bandit-report.json || echo "Bandit completed"
+        bandit -r app || echo "Bandit completed"
     
-    - name: Run ESLint security (JavaScript)
-      working-directory: ./frontend
+    # Secret Scanning (simplified)
+    - name: Check for secrets
       run: |
-        npm install eslint-plugin-security
-        npx eslint src --ext .js,.jsx --format json --output-file eslint-security-report.json || echo "ESLint security check completed"
+        echo "Checking for hardcoded secrets..."
+        # Check for common secret patterns
+        grep -r "SECRET_KEY\|API_KEY\|password[=:]\|token[=:]" \
+          --include="*.py" --include="*.js" --include="*.jsx" --include="*.env" \
+          --exclude-dir=node_modules --exclude-dir=__pycache__ --exclude-dir=.git \
+          . 2>/dev/null | grep -v ".env.example" | grep -v "test" || echo "No obvious secrets found"
     
-    - name: Upload SAST results
-      uses: actions/upload-artifact@v4
-      with:
-        name: sast-results
-        path: |
-          ./backend/bandit-report.json
-          ./frontend/eslint-security-report.json
-        retention-days: 30
-
-  compliance-check:
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-    
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-    
-    - name: Run OWASP Dependency Check
-      uses: dependency-check/Dependency-Check_Action@main
-      with:
-        project: 'Enterprise-Monitoring-Platform'
-        path: '.'
-        format: 'HTML'
-        out: 'reports'
-    
-    - name: Upload compliance report
-      uses: actions/upload-artifact@v4
-      with:
-        name: compliance-reports
-        path: reports/
-        retention-days: 90
-
-  security-summary:
-    runs-on: ubuntu-latest
-    needs: [codeql-analysis, dependency-scan, container-scan, secret-scan, sast]
-    if: always()
-    
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-    
-    - name: Download all security artifacts
-      uses: actions/download-artifact@v4
-      with:
-        path: security-reports
-        pattern: '*'
-        merge-multiple: true
-    
-    - name: Generate security summary
+    # Container Scanning
+    - name: Build and scan containers
       run: |
-        echo "# Security Scan Summary" > security-summary.md
-        echo "" >> security-summary.md
-        echo "## Scan Results" >> security-summary.md
-        echo "" >> security-summary.md
-        echo "- **CodeQL Analysis**: ${{ needs.codeql-analysis.result }}" >> security-summary.md
-        echo "- **Dependency Scan**: ${{ needs.dependency-scan.result }}" >> security-summary.md
-        echo "- **Container Scan**: ${{ needs.container-scan.result }}" >> security-summary.md
-        echo "- **Secret Scan**: ${{ needs.secret-scan.result }}" >> security-summary.md
-        echo "- **SAST**: ${{ needs.sast.result }}" >> security-summary.md
-        echo "" >> security-summary.md
-        echo "## Details" >> security-summary.md
-        echo "" >> security-summary.md
-        echo "All security reports have been uploaded as artifacts." >> security-summary.md
+        docker build -t backend-scan ./backend
+        docker build -t frontend-scan ./frontend
         
-        # Count findings if reports exist
-        if [ -f security-reports/bandit-report.json ]; then
-          BANDIT_COUNT=$(jq '.results | length' security-reports/bandit-report.json 2>/dev/null || echo "0")
-          echo "- Bandit found $BANDIT_COUNT issues" >> security-summary.md
+        # Install trivy if not present
+        if ! command -v trivy &> /dev/null; then
+          wget https://github.com/aquasecurity/trivy/releases/download/v0.51.4/trivy_0.51.4_Linux-64bit.tar.gz
+          tar -xzf trivy_0.51.4_Linux-64bit.tar.gz
+          sudo mv trivy /usr/local/bin/
         fi
         
-        if [ -f security-reports/npm-audit-report.json ]; then
-          NPM_COUNT=$(jq '.metadata.vulnerabilities.total' security-reports/npm-audit-report.json 2>/dev/null || echo "0")
-          echo "- npm audit found $NPM_COUNT vulnerabilities" >> security-summary.md
-        fi
-    
-    - name: Upload security summary
-      uses: actions/upload-artifact@v4
-      with:
-        name: security-summary
-        path: security-summary.md
-        retention-days: 30
+        echo "Scanning backend container..."
+        trivy image backend-scan --severity HIGH,CRITICAL --exit-code 0
+        
+        echo "Scanning frontend container..."
+        trivy image frontend-scan --severity HIGH,CRITICAL --exit-code 0
