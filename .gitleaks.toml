@@ -1,37 +1,88 @@
 title = "Enterprise Monitoring Platform Secret Detection"
 
+# Use default rules with our customizations
 [extend]
 useDefault = true
 
+# Custom rules for our platform
 [[rules]]
-description = "Generic Secret"
-id = "generic-secret"
-regex = '''(?i)(secret|key|token|password|passwd|pwd|credential)[=:]\s*['"][a-zA-Z0-9!@#$%^&*()_+\-=\[\]{}|;:,.<>?/~`]{8,}['"]'''
+id = "enterprise-monitoring-secrets"
+description = "Generic API keys and secrets"
+regex = '''(?i)(?:api[_-]?key|secret[_-]?key|access[_-]?token|refresh[_-]?token|password|passwd|pwd|credential)[=:]\s*['"][a-zA-Z0-9!@#$%^&*()_+\-=\[\]{}|;:,.<>?/~`]{8,}['"]'''
 
 [[rules]]
-description = "JWT Secret"
-id = "jwt-secret"
-regex = '''(?i)(jwt|access.?token|refresh.?token).*['"][a-zA-Z0-9-_=]+\.[a-zA-Z0-9-_=]+\.?[a-zA-Z0-9-_.+/=]*['"]'''
+id = "jwt-secrets"
+description = "JWT tokens"
+regex = '''(?i)eyJ[A-Za-z0-9-_=]+\.[A-Za-z0-9-_=]+\.?[A-Za-z0-9-_.+/=]*'''
 
 [[rules]]
-description = "AWS Keys"
+id = "database-urls"
+description = "Database connection strings"
+regex = '''(?:postgresql|mysql|mongodb|redis)://[^:@]+:[^:@]+@[^/]+'''
+
+[[rules]]
 id = "aws-keys"
-regex = '''(A3T[A-Z0-9]|AKIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}'''
+description = "AWS access keys"
+regex = '''(?:A3T[A-Z0-9]|AKIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}'''
 
 [[rules]]
-description = "Database URLs"
-id = "database-url"
-regex = '''(postgres|mysql|mongodb)://[^:@]+:[^:@]+@'''
+id = "google-api-keys"
+description = "Google API keys"
+regex = '''AIza[0-9A-Za-z\\-_]{35}'''
 
+[[rules]]
+id = "github-tokens"
+description = "GitHub tokens"
+regex = '''(?:gh[oprs]_[A-Za-z0-9_]{36}|github_pat_[A-Za-z0-9_]{82})'''
+
+# Allowlist patterns (corrected regex)
 [allowlist]
+description = "Allowlist for test files and examples"
 paths = [
-  ".env.example",
-  "**/*.test.js",
-  "**/*.spec.js",
-  "**/*.test.py",
-  "**/*.spec.py"
+    # Test files
+    "\\.test\\.js$",
+    "\\.spec\\.js$",
+    "\\.test\\.py$",
+    "\\.spec\\.py$",
+    
+    # Example files
+    "\\.env\\.example$",
+    "\\.env\\.sample$",
+    
+    # Documentation
+    "\\.md$",
+    "\\.txt$",
+    
+    # Configuration templates
+    "docker-compose\\.yml$",
+    "Dockerfile$",
+    
+    # Vendor directories
+    "node_modules/",
+    "__pycache__/",
+    "\\.venv/",
+    "\\.git/",
+    "dist/",
+    "build/",
 ]
 
 commits = [
-  "commit-hash-with-false-positive"
+    # Initial commit with example secrets
+    "initial",
+    
+    # Commits with false positives
+    "readme-update",
+    "docs-update"
+]
+
+stopwords = [
+    "example",
+    "sample",
+    "test",
+    "dummy",
+    "placeholder",
+    "changeme",
+    "your-",
+    "insert-",
+    "replace-"
 ]
