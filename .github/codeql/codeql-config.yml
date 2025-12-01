@@ -1,0 +1,32 @@
+name: "Enterprise Monitoring Platform CodeQL Configuration"
+
+paths:
+  - backend
+  - frontend/src
+
+paths-ignore:
+  - '**/node_modules'
+  - '**/__pycache__'
+  - '**/.venv'
+  - '**/tests'
+  - '**/test'
+  - '**/*.test.js'
+  - '**/*.spec.js'
+  - '**/*.test.py'
+  - '**/*.spec.py'
+
+queries:
+  - uses: security-and-quality
+  - uses: security-extended
+
+query-filters:
+  - exclude:
+      id: js/unused-local-variable
+  - exclude:
+      id: py/import-and-import-from
+  - exclude:
+      id: js/stored-xss
+
+languages:
+  - python
+  - javascript
