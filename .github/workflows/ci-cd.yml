@@ -5,31 +5,75 @@ on:
     branches: [ main, develop ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch:  # Allow manual triggering
+
+# Set permissions for the workflow
+permissions:
+  contents: read
+  packages: write
+  security-events: write
 
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  PYTHON_VERSION: '3.11'
+  NODE_VERSION: '18'
 
 jobs:
-  test:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+    
+    - name: Install Python dependencies
+      working-directory: ./backend
+      run: |
+        python -m pip install --upgrade pip
+        pip install black flake8 mypy
+    
+    - name: Run Black (code formatting)
+      working-directory: ./backend
+      run: black --check app/
+    
+    - name: Run Flake8 (linting)
+      working-directory: ./backend
+      run: flake8 app/ --max-line-length=88 --extend-ignore=E203,W503
+    
+    - name: Run MyPy (type checking)
+      working-directory: ./backend
+      run: mypy app/
+
+  test-backend:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:15
+        image: postgres:15-alpine
         env:
+          POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test_db
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+        ports:
+          - 5432:5432
+      
       redis:
-        image: redis:7
+        image: redis:7-alpine
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+        ports:
+          - 6379:6379
 
     steps:
     - uses: actions/checkout@v4
@@ -37,103 +81,261 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
-        python-version: '3.11'
+        python-version: ${{ env.PYTHON_VERSION }}
     
     - name: Install dependencies
       working-directory: ./backend
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
+        pip install pytest pytest-cov pytest-asyncio httpx
     
-    - name: Run tests
+    - name: Run tests with coverage
       working-directory: ./backend
       env:
         DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
-        SECRET_KEY: test-secret-key
+        REDIS_URL: redis://localhost:6379/0
+        SECRET_KEY: test-secret-key-change-in-production
+        ALGORITHM: HS256
+        ACCESS_TOKEN_EXPIRE_MINUTES: 30
       run: |
-        pytest --cov=app --cov-report=xml
+        pytest --cov=app --cov-report=xml --cov-report=term
     
     - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v3
+      uses: codecov/codecov-action@v4
       with:
         file: ./backend/coverage.xml
+        flags: unittests
+        name: codecov-umbrella
+        fail_ci_if_error: true
 
-  build-backend:
+  test-frontend:
     runs-on: ubuntu-latest
-    needs: test
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: './frontend/package-lock.json'
+    
+    - name: Install dependencies
+      working-directory: ./frontend
+      run: npm ci
+    
+    - name: Run linting
+      working-directory: ./frontend
+      run: npm run lint
+    
+    - name: Run tests
+      working-directory: ./frontend
+      run: npm test -- --watchAll=false --coverage
+    
+    - name: Upload frontend coverage to Codecov
+      uses: codecov/codecov-action@v4
+      with:
+        files: ./frontend/coverage/lcov.info
+        flags: frontend
+        name: codecov-frontend
+
+  security-scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v3
+      with:
+        languages: python, javascript
+    
+    - name: Autobuild
+      uses: github/codeql-action/autobuild@v3
+    
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v3
+    
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+    
+    - name: Upload Trivy results
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: 'trivy-results.sarif'
+    
+    - name: Run Bandit security linter
+      working-directory: ./backend
+      run: |
+        pip install bandit
+        bandit -r app -f json -o bandit-results.json || echo "Bandit completed"
+    
+    - name: Run npm audit
+      working-directory: ./frontend
+      run: npm audit --json > npm-audit-results.json || true
+    
+    - name: Upload security scan results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: security-scan-results
+        path: |
+          ./backend/bandit-results.json
+          ./frontend/npm-audit-results.json
+        retention-days: 30
+
+  build-and-push:
+    runs-on: ubuntu-latest
+    needs: [test-backend, test-frontend, security-scan]
+    permissions:
+      contents: read
+      packages: write
+    
     steps:
     - uses: actions/checkout@v4
     
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
     
-    - name: Log in to Container Registry
+    - name: Log in to GitHub Container Registry
       uses: docker/login-action@v3
       with:
         registry: ${{ env.REGISTRY }}
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Extract metadata for Docker
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: |
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-backend
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+          type=sha,prefix={{branch}}-
     
     - name: Build and push backend
       uses: docker/build-push-action@v5
       with:
         context: ./backend
         push: true
-        tags: |
-          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-backend:latest
-          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-backend:${{ github.sha }}
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
-
-  build-frontend:
-    runs-on: ubuntu-latest
-    needs: test
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-    
-    - name: Log in to Container Registry
-      uses: docker/login-action@v3
-      with:
-        registry: ${{ env.REGISTRY }}
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
+        platforms: linux/amd64,linux/arm64
     
     - name: Build and push frontend
       uses: docker/build-push-action@v5
       with:
         context: ./frontend
         push: true
-        tags: |
-          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend:latest
-          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend:${{ github.sha }}
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
+        platforms: linux/amd64,linux/arm64
+    
+    - name: Generate deployment manifest
+      run: |
+        mkdir -p deployment
+        # Update image tags in Kubernetes manifests
+        sed "s|image:.*backend.*|image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-backend:${{ github.sha }}|" kubernetes/deployment.yaml > deployment/deployment.yaml
+        sed "s|image:.*frontend.*|image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend:${{ github.sha }}|" kubernetes/deployment.yaml >> deployment/deployment.yaml
+        cp kubernetes/service.yaml deployment/
+        cp kubernetes/ingress.yaml deployment/
+    
+    - name: Upload deployment artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: deployment-manifests
+        path: deployment/
+        retention-days: 7
 
-  deploy:
+  deploy-staging:
     runs-on: ubuntu-latest
-    needs: [build-backend, build-frontend]
+    needs: build-and-push
+    if: github.ref == 'refs/heads/develop' || github.event_name == 'workflow_dispatch'
+    environment: staging
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Download deployment artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: deployment-manifests
+        path: deployment
+    
+    - name: Set up Kubernetes context
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'latest'
+    
+    - name: Deploy to staging
+      run: |
+        kubectl config set-cluster staging --server=${{ secrets.K8S_STAGING_SERVER }}
+        kubectl config set-credentials staging-user --token=${{ secrets.K8S_STAGING_TOKEN }}
+        kubectl config set-context staging --cluster=staging --user=staging-user --namespace=monitoring-staging
+        kubectl config use-context staging
+        kubectl apply -f deployment/
+        kubectl rollout status deployment/enterprise-monitoring-backend -n monitoring-staging --timeout=300s
+        kubectl rollout status deployment/enterprise-monitoring-frontend -n monitoring-staging --timeout=300s
+
+  deploy-production:
+    runs-on: ubuntu-latest
+    needs: [build-and-push, deploy-staging]
     if: github.ref == 'refs/heads/main'
     environment: production
     
     steps:
     - uses: actions/checkout@v4
     
-    - name: Deploy to Kubernetes
-      uses: azure/k8s-deploy@v4
+    - name: Download deployment artifacts
+      uses: actions/download-artifact@v4
       with:
-        manifests: |
-          kubernetes/deployment.yaml
-          kubernetes/service.yaml
-          kubernetes/ingress.yaml
-        images: |
-          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-backend:${{ github.sha }}
-          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend:${{ github.sha }}
-        namespace: monitoring
+        name: deployment-manifests
+        path: deployment
     
-    - name: Verify deployment
+    - name: Set up Kubernetes context
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'latest'
+    
+    - name: Deploy to production
       run: |
-        kubectl rollout status deployment/enterprise-monitoring-backend -n monitoring
-        kubectl rollout status deployment/enterprise-monitoring-frontend -n monitoring
+        kubectl config set-cluster production --server=${{ secrets.K8S_PROD_SERVER }}
+        kubectl config set-credentials production-user --token=${{ secrets.K8S_PROD_TOKEN }}
+        kubectl config set-context production --cluster=production --user=production-user --namespace=monitoring-production
+        kubectl config use-context production
+        kubectl apply -f deployment/
+        kubectl rollout status deployment/enterprise-monitoring-backend -n monitoring-production --timeout=300s
+        kubectl rollout status deployment/enterprise-monitoring-frontend -n monitoring-production --timeout=300s
+    
+    - name: Run smoke tests
+      run: |
+        # Wait for services to be ready
+        sleep 30
+        
+        # Test backend health endpoint
+        BACKEND_URL=${{ secrets.PRODUCTION_BACKEND_URL }}
+        curl -f $BACKEND_URL/api/health || exit 1
+        
+        # Test frontend
+        FRONTEND_URL=${{ secrets.PRODUCTION_FRONTEND_URL }}
+        curl -f $FRONTEND_URL || exit 1
+        
+        echo "✅ Smoke tests passed"
