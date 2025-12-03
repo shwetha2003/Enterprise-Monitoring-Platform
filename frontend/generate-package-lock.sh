@@ -1,18 +1,15 @@
-#!/bin/bash
-
-# Script to generate package-lock.json for Docker builds
-
-echo "Cleaning up..."
+cd frontend
+# Remove existing node_modules and lock file
 rm -rf node_modules
 rm -f package-lock.json
 
-echo "Installing dependencies..."
+# Install with package-lock generation
 npm install --package-lock-only
 
-echo "Verifying package-lock.json..."
+# Verify
 if [ -f "package-lock.json" ]; then
-    echo "✅ package-lock.json generated successfully"
-    echo "File size: $(wc -l < package-lock.json) lines"
+    echo "✅ package-lock.json generated"
+    echo "Lines: $(wc -l < package-lock.json)"
 else
     echo "❌ Failed to generate package-lock.json"
     exit 1
